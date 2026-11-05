@@ -1,6 +1,7 @@
 package com.mirror.compat;
 
 import android.graphics.Point;
+import android.graphics.Rect;
 import android.hardware.display.VirtualDisplay;
 import android.os.IBinder;
 import android.view.Surface;
@@ -112,7 +113,7 @@ public final class DisplayManagerBridge {
             Object config = builder.getClass().getMethod("build").invoke(builder);
 
             if (paramTypes.length == 5) {
-                Object arg0 = (paramTypes[0] == String.class) ? "com.mirror" : null;
+                Object arg0 = (paramTypes[0] == String.class) ? "com.android.shell" : null;
                 return (VirtualDisplay) createVirtualDisplayMethod.invoke(dmg, arg0, null, config, null, null);
             } else if (paramTypes.length == 3) {
                 return (VirtualDisplay) createVirtualDisplayMethod.invoke(dmg, config, null, null);
@@ -124,7 +125,7 @@ public final class DisplayManagerBridge {
                     if (paramTypes[i].getName().contains("VirtualDisplayConfig")) {
                         args[i] = config;
                     } else if (paramTypes[i] == String.class) {
-                        args[i] = "com.mirror";
+                        args[i] = "com.android.shell";
                     } else {
                         args[i] = null;
                     }
@@ -229,5 +230,62 @@ public final class DisplayManagerBridge {
         }
 
         throw new ReflectiveOperationException("Failed to determine display size via DisplayManagerGlobal or IWindowManager", lastException);
+    }
+
+    public static IBinder createDisplay(String name, boolean secure) throws ReflectiveOperationException {
+        Class<?> sc = Class.forName("android.view.SurfaceControl");
+        Method method = sc.getMethod("createDisplay", String.class, boolean.class);
+        return (IBinder) method.invoke(null, name, secure);
+    }
+
+    public static void setDisplaySurface(IBinder displayToken, Surface surface, Rect deviceRect, Rect displayRect, int layerStack)
+            throws ReflectiveOperationException {
+        Class<?> sc = Class.forName("android.view.SurfaceControl");
+
+        // 1. Try modern Transaction API (API 29+/31+)
+        try {
+            Class<?> txClass = Class.forName("android.view.SurfaceControl$Transaction");
+            Object tx = txClass.getConstructor().newInstance();
+            Method setSurf = txClass.getMethod("setDisplaySurface", IBinder.class, Surface.class);
+            Method setProj = txClass.getMethod("setDisplayProjection", IBinder.class, int.class, Rect.class, Rect.class);
+            Method setLayer = txClass.getMethod("setDisplayLayerStack", IBinder.class, int.class);
+            Method apply = txClass.getMethod("apply");
+
+            setSurf.invoke(tx, displayToken, surface);
+            setProj.invoke(tx, displayToken, 0, deviceRect, displayRect);
+            setLayer.invoke(tx, displayToken, layerStack);
+            apply.invoke(tx);
+            return;
+        } catch (Throwable ignored) {
+            // Fallback to legacy static methods on SurfaceControl (API <= 30)
+        }
+
+        // 2. Legacy static methods
+        Method openTx = sc.getMethod("openTransaction");
+        Method closeTx = sc.getMethod("closeTransaction");
+        Method setSurface = sc.getMethod("setDisplaySurface", IBinder.class, Surface.class);
+        Method setProjection = sc.getMethod("setDisplayProjection", IBinder.class, int.class, Rect.class, Rect.class);
+        Method setLayerStack = sc.getMethod("setDisplayLayerStack", IBinder.class, int.class);
+
+        openTx.invoke(null);
+        try {
+            setSurface.invoke(null, displayToken, surface);
+            setProjection.invoke(null, displayToken, 0, deviceRect, displayRect);
+            setLayerStack.invoke(null, displayToken, layerStack);
+        } finally {
+            closeTx.invoke(null);
+        }
+    }
+
+    public static void destroyDisplay(IBinder displayToken) {
+        if (displayToken == null) {
+            return;
+        }
+        try {
+            Class<?> sc = Class.forName("android.view.SurfaceControl");
+            Method destroy = sc.getMethod("destroyDisplay", IBinder.class);
+            destroy.invoke(null, displayToken);
+        } catch (Exception ignored) {
+        }
     }
 }

@@ -39,7 +39,9 @@ javac -source 11 -target 11 -Xlint:-options -cp "${ANDROID_JAR}" -d bin/classes 
 echo "Running d8 bytecode packaging..."
 "${D8}" --output bin/dist/server.jar --lib "${ANDROID_JAR}" $(find bin/classes -name "*.class")
 
-# Ensure build/server.jar exists at the canonical path expected by audit
+# Ensure build/server.jar exists at the canonical path expected by audit and run.sh
 cp bin/dist/server.jar build/server.jar
+mkdir -p android-server/build/libs
+cp bin/dist/server.jar android-server/build/libs/server.jar
 
-echo "Build successful: bin/dist/server.jar and build/server.jar"
+echo "Build successful: bin/dist/server.jar, build/server.jar, and android-server/build/libs/server.jar"

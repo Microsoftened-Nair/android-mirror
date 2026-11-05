@@ -1,11 +1,13 @@
 package com.mirror.input;
 
+import android.graphics.Point;
 import android.os.IBinder;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 
+import com.mirror.compat.DisplayManagerBridge;
 import com.mirror.compat.InputManagerBridge;
 import com.mirror.compat.ServiceManager;
 import com.mirror.control.ControlEventListener;
@@ -29,6 +31,7 @@ public class InputDispatcher implements ControlEventListener {
     private final MotionEvent.PointerProperties[] pointerProperties = new MotionEvent.PointerProperties[1];
     private final MotionEvent.PointerCoords[] pointerCoords = new MotionEvent.PointerCoords[1];
 
+    private Point realDisplaySize;
     private long lastDownTime = 0;
 
     public InputDispatcher(InputManagerBridge inputManagerBridge,
@@ -58,8 +61,23 @@ public class InputDispatcher implements ControlEventListener {
         pointerProperties[0].id = (int) pointerId;
         pointerProperties[0].toolType = MotionEvent.TOOL_TYPE_FINGER;
 
-        pointerCoords[0].x = x;
-        pointerCoords[0].y = y;
+        float targetX = x;
+        float targetY = y;
+        if (canvasWidth > 0 && canvasHeight > 0) {
+            if (realDisplaySize == null) {
+                try {
+                    realDisplaySize = DisplayManagerBridge.getDisplayRealSize(0);
+                } catch (Exception ignored) {
+                }
+            }
+            if (realDisplaySize != null && (canvasWidth != realDisplaySize.x || canvasHeight != realDisplaySize.y)) {
+                targetX = (float) x * realDisplaySize.x / (float) canvasWidth;
+                targetY = (float) y * realDisplaySize.y / (float) canvasHeight;
+            }
+        }
+
+        pointerCoords[0].x = targetX;
+        pointerCoords[0].y = targetY;
         pointerCoords[0].pressure = (pressure > 0) ? (pressure / 65535.0f) : (action == MotionEvent.ACTION_UP ? 0.0f : 1.0f);
         pointerCoords[0].size = 0.0f;
 
@@ -206,14 +224,14 @@ public class InputDispatcher implements ControlEventListener {
                 if ("setPrimaryClip".equals(m.getName())) {
                     Class<?>[] types = m.getParameterTypes();
                     if (types.length == 2 && types[0].isAssignableFrom(clipDataClass) && types[1] == String.class) {
-                        m.invoke(clipboard, clipData, "com.mirror");
+                        m.invoke(clipboard, clipData, "com.android.shell");
                         return;
                     } else if (types.length == 3 && types[0].isAssignableFrom(clipDataClass)
                             && types[1] == String.class && types[2] == int.class) {
-                        m.invoke(clipboard, clipData, "com.mirror", 0);
+                        m.invoke(clipboard, clipData, "com.android.shell", 0);
                         return;
                     } else if (types.length == 4) {
-                        m.invoke(clipboard, clipData, "com.mirror", null, 0);
+                        m.invoke(clipboard, clipData, "com.android.shell", null, 0);
                         return;
                     }
                 }

@@ -73,7 +73,7 @@ public class DevicePowerController {
             args[0] = wakeLockToken;
             args[1] = PARTIAL_WAKE_LOCK;
             args[2] = "mirror-wakelock";
-            args[3] = "com.mirror";
+            args[3] = "com.android.shell";
             // Any remaining parameters (e.g. WorkSource, historyTag) remain null / 0
 
             acquireWakeLockMethod.invoke(powerManager, args);

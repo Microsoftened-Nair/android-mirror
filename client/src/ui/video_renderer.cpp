@@ -45,13 +45,30 @@ bool VideoRenderer::init() {
         return false;
     }
 
+    // Query desktop screen bounds to fit window comfortably without overflow
+    SDL_Rect display_bounds{0, 0, 1920, 1080};
+    SDL_GetDisplayUsableBounds(0, &display_bounds);
+
+    int initial_w = canvas_w_;
+    int initial_h = canvas_h_;
+    int max_initial_w = (display_bounds.w > 0) ? (display_bounds.w * 8 / 10) : 1280;
+    int max_initial_h = (display_bounds.h > 0) ? (display_bounds.h * 8 / 10) : 900;
+
+    if (initial_w > max_initial_w || initial_h > max_initial_h) {
+        double scale_w = static_cast<double>(max_initial_w) / static_cast<double>(initial_w);
+        double scale_h = static_cast<double>(max_initial_h) / static_cast<double>(initial_h);
+        double scale = std::min(scale_w, scale_h);
+        initial_w = std::max(1, static_cast<int>(initial_w * scale));
+        initial_h = std::max(1, static_cast<int>(initial_h * scale));
+    }
+
     // Create resizable high-DPI window
     window_ = SDL_CreateWindow(
         title_.c_str(),
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
-        canvas_w_,
-        canvas_h_,
+        initial_w,
+        initial_h,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_SHOWN
     );
     if (!window_) {
@@ -90,6 +107,11 @@ bool VideoRenderer::init() {
         std::cerr << "SDL_CreateTexture failed: " << SDL_GetError() << std::endl;
         return false;
     }
+
+    // Render an initial solid black frame so window is never left uninitialized/transparent
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
+    SDL_RenderClear(renderer_);
+    SDL_RenderPresent(renderer_);
 
     return true;
 }
