@@ -212,6 +212,7 @@ public class Server {
     }
 
     public static void main(String[] args) {
+        com.mirror.compat.Workarounds.prepare();
         Options options = parseArgs(args);
         registerShutdownHook();
 

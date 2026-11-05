@@ -52,13 +52,20 @@ public class DevicePowerController {
 
     public void setScreenPower(boolean on) {
         int mode = on ? POWER_MODE_NORMAL : POWER_MODE_OFF;
+        boolean success = false;
         try {
             IBinder token = DisplayManagerBridge.getInternalDisplayToken();
             if (token != null) {
                 DisplayManagerBridge.setDisplayPowerMode(token, mode);
+                success = true;
             }
         } catch (Exception e) {
-            System.err.println("DevicePowerController failed to set screen power mode on SurfaceControl: " + e.getMessage());
+            // SurfaceControl method may fail on Android 15+
+        }
+
+        if (!success) {
+            // Fallback for Android 15+ (DisplayManagerGlobal.requestDisplayPower)
+            DisplayManagerBridge.requestDisplayPower(0, on);
         }
     }
 

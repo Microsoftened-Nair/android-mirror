@@ -6,8 +6,12 @@ import android.hardware.display.VirtualDisplay;
 import android.os.IBinder;
 import android.view.Surface;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Reflection bridge for DisplayManagerGlobal, physical display token retrieval,
@@ -155,14 +159,17 @@ public final class DisplayManagerBridge {
     public static IBinder getInternalDisplayToken() throws ReflectiveOperationException {
         Class<?> surfaceControlClass = Class.forName("android.view.SurfaceControl");
 
-        // API <= 30
+        // 1. API 29-30 (Android 10 - 11)
         try {
             Method m = surfaceControlClass.getMethod("getInternalDisplayToken");
-            return (IBinder) m.invoke(null);
+            IBinder token = (IBinder) m.invoke(null);
+            if (token != null) {
+                return token;
+            }
         } catch (NoSuchMethodException ignored) {
         }
 
-        // API >= 31 fallback via getPhysicalDisplayIds / getDisplayToken
+        // 2. API 31+ (Android 12+) fallback via getPhysicalDisplayIds / getPhysicalDisplayToken
         try {
             Method getPhysicalDisplayIdsMethod = null;
             try {
@@ -179,10 +186,22 @@ public final class DisplayManagerBridge {
                 } catch (NoSuchMethodException ignored) {
                     getDisplayTokenMethod = surfaceControlClass.getMethod("getDisplayToken", long.class);
                 }
-                return (IBinder) getDisplayTokenMethod.invoke(null, physicalDisplayIds[0]);
+                IBinder token = (IBinder) getDisplayTokenMethod.invoke(null, physicalDisplayIds[0]);
+                if (token != null) {
+                    return token;
+                }
             }
-        } catch (Exception e) {
-            throw new ReflectiveOperationException("Failed to obtain physical display token on modern Android release", e);
+        } catch (Throwable ignored) {
+        }
+
+        // 3. API 21-28 (Android 5.0 - 9.0) legacy fallback via getBuiltInDisplay(0)
+        try {
+            Method getBuiltInDisplay = surfaceControlClass.getMethod("getBuiltInDisplay", int.class);
+            IBinder token = (IBinder) getBuiltInDisplay.invoke(null, 0);
+            if (token != null) {
+                return token;
+            }
+        } catch (Throwable ignored) {
         }
 
         throw new ReflectiveOperationException("No internal or physical display token could be retrieved from SurfaceControl");
@@ -192,6 +211,16 @@ public final class DisplayManagerBridge {
         Class<?> surfaceControlClass = Class.forName("android.view.SurfaceControl");
         Method method = surfaceControlClass.getMethod("setDisplayPowerMode", IBinder.class, int.class);
         method.invoke(null, token, mode);
+    }
+
+    public static boolean requestDisplayPower(int displayId, boolean on) {
+        try {
+            Object dmg = getDisplayManagerGlobal();
+            Method method = dmg.getClass().getMethod("requestDisplayPower", int.class, boolean.class);
+            return (boolean) method.invoke(dmg, displayId, on);
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     public static Point getDisplayRealSize(int displayId) throws ReflectiveOperationException {
@@ -246,7 +275,31 @@ public final class DisplayManagerBridge {
             lastException = t;
         }
 
-        throw new ReflectiveOperationException("Failed to determine display size via DisplayManagerGlobal or IWindowManager", lastException);
+        // 3. Fallback to CLI "wm size" parsing
+        try {
+            Process p = Runtime.getRuntime().exec(new String[]{"wm", "size"});
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                String line;
+                Pattern pattern = Pattern.compile("([0-9]+)x([0-9]+)");
+                Point lastMatch = null;
+                while ((line = reader.readLine()) != null) {
+                    Matcher m = pattern.matcher(line);
+                    if (m.find()) {
+                        lastMatch = new Point(Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)));
+                    }
+                }
+                if (lastMatch != null && lastMatch.x > 0 && lastMatch.y > 0) {
+                    return lastMatch;
+                }
+            }
+        } catch (Throwable t) {
+            if (lastException != null) {
+                t.addSuppressed(lastException);
+            }
+            lastException = t;
+        }
+
+        throw new ReflectiveOperationException("Failed to determine display size via DisplayManagerGlobal, IWindowManager, or wm size", lastException);
     }
 
     public static IBinder createDisplay(String name, boolean secure) throws ReflectiveOperationException {

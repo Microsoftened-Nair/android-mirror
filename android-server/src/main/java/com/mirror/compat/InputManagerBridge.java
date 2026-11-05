@@ -70,12 +70,30 @@ public class InputManagerBridge {
     }
 
     public void injectInputEvent(InputEvent event, int mode) throws ReflectiveOperationException {
-        if (injectInputEventMethod.getParameterCount() == 2) {
+        int count = injectInputEventMethod.getParameterCount();
+        if (count == 2) {
             injectInputEventMethod.invoke(inputManager, event, mode);
-        } else if (injectInputEventMethod.getParameterCount() == 3) {
+        } else if (count == 3) {
             injectInputEventMethod.invoke(inputManager, event, mode, 0);
-        } else {
+        } else if (count == 1) {
             injectInputEventMethod.invoke(inputManager, event);
+        } else {
+            Object[] args = new Object[count];
+            Class<?>[] pts = injectInputEventMethod.getParameterTypes();
+            args[0] = event;
+            if (count > 1) {
+                args[1] = mode;
+            }
+            for (int i = 2; i < count; i++) {
+                if (pts[i] == int.class) {
+                    args[i] = 0;
+                } else if (pts[i] == boolean.class) {
+                    args[i] = false;
+                } else {
+                    args[i] = null;
+                }
+            }
+            injectInputEventMethod.invoke(inputManager, args);
         }
     }
 
