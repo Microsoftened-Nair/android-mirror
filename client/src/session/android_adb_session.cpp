@@ -4,6 +4,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <fcntl.h>
+#include <fstream>
 #include <iostream>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -151,14 +152,18 @@ bool AndroidAdbSession::spawn_remote_daemon(const std::string& remote_jar_path) 
 
     if (pid == 0) {
         // Child process
-        int dev_null = open("/dev/null", O_RDWR);
+        std::string log_file = "/tmp/mirror_server_" + options_.serial + ".log";
+        int log_fd = open(log_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        int dev_null = open("/dev/null", O_RDONLY);
+
         if (dev_null >= 0) {
             dup2(dev_null, STDIN_FILENO);
-            dup2(dev_null, STDOUT_FILENO);
-            dup2(dev_null, STDERR_FILENO);
-            if (dev_null > STDERR_FILENO) {
-                close(dev_null);
-            }
+            close(dev_null);
+        }
+        if (log_fd >= 0) {
+            dup2(log_fd, STDOUT_FILENO);
+            dup2(log_fd, STDERR_FILENO);
+            close(log_fd);
         }
 
         std::vector<const char*> argv;
@@ -194,56 +199,85 @@ bool AndroidAdbSession::initialize() {
 
     tunnel_ = std::make_unique<net::AdbTunnel>(options_.serial, options_.socket_name);
 
-    // 3. Pre-cleanup on device
-    std::cout << "[Session] Terminating any stale mirror daemon instances...\n";
-    tunnel_->kill_zombie_servers();
+    bool already_running = tunnel_->is_socket_listening(options_.socket_name);
 
-    // 4. Discover and stage server.jar
-    auto jar_path = find_server_jar(options_.server_jar_path);
-    if (jar_path.empty()) {
-        std::cerr << "[Session] Error: Could not locate server.jar via discovery hierarchy.\n"
-                  << "  Please set MIRROR_SERVER_PATH or build via ./scripts/build_server.sh.\n";
-        return false;
-    }
-    std::cout << "[Session] Found server.jar: " << jar_path << "\n";
+    if (!already_running) {
+        // 3. Pre-cleanup on device
+        std::cout << "[Session] Terminating any stale mirror daemon instances...\n";
+        tunnel_->kill_zombie_servers();
 
-    const std::string remote_jar = "/data/local/tmp/server.jar";
-    std::cout << "[Session] Staging server.jar to " << remote_jar << " on device...\n";
-    if (!tunnel_->push_server_jar(jar_path, remote_jar)) {
-        std::cerr << "[Session] Error: Failed to push server.jar to device.\n";
-        return false;
-    }
+        // 4. Discover and stage server.jar
+        auto jar_path = find_server_jar(options_.server_jar_path);
+        if (jar_path.empty()) {
+            std::cerr << "[Session] Error: Could not locate server.jar via discovery hierarchy.\n"
+                      << "  Please set MIRROR_SERVER_PATH or build via ./scripts/build_server.sh.\n";
+            return false;
+        }
+        std::cout << "[Session] Found server.jar: " << jar_path << "\n";
 
-    // 5. Setup reverse socket tunnel: adb reverse tcp:<port> tcp:<port>
-    std::cout << "[Session] Configuring reverse socket tunnel (tcp:" << options_.port
-              << " -> tcp:" << options_.port << ")...\n";
-    tunnel_->setup_reverse(options_.port, options_.port);
+        const std::string remote_jar = "/data/local/tmp/server.jar";
+        std::cout << "[Session] Staging server.jar to " << remote_jar << " on device...\n";
+        if (!tunnel_->push_server_jar(jar_path, remote_jar)) {
+            std::cerr << "[Session] Error: Failed to push server.jar to device.\n";
+            return false;
+        }
 
-    // 6. Setup forward socket tunnel: adb forward tcp:<port> localabstract:<socket_name>
-    std::cout << "[Session] Configuring forward socket tunnel (tcp:" << options_.port
-              << " -> localabstract:" << options_.socket_name << ")...\n";
-    if (tunnel_->setup_forward(options_.socket_name) == 0) {
-        std::cerr << "[Session] Error: Failed to establish ADB port forwarding.\n";
-        teardown();
-        return false;
-    }
-    tunnels_configured_ = true;
+        // 5. Setup reverse socket tunnel: adb reverse tcp:<port> tcp:<port>
+        std::cout << "[Session] Configuring reverse socket tunnel (tcp:" << options_.port
+                  << " -> tcp:" << options_.port << ")...\n";
+        tunnel_->setup_reverse(options_.port, options_.port);
 
-    // 7. Spawn background device daemon
-    if (!spawn_remote_daemon(remote_jar)) {
-        teardown();
-        return false;
+        // 6. Setup forward socket tunnel: adb forward tcp:<port> localabstract:<socket_name>
+        std::cout << "[Session] Configuring forward socket tunnel (tcp:" << options_.port
+                  << " -> localabstract:" << options_.socket_name << ")...\n";
+        uint16_t forward_port = tunnel_->setup_forward(options_.socket_name, options_.port);
+        if (forward_port == 0) {
+            forward_port = tunnel_->setup_forward(options_.socket_name, 0);
+        }
+        if (forward_port == 0) {
+            std::cerr << "[Session] Error: Failed to establish ADB port forwarding.\n";
+            teardown();
+            return false;
+        }
+        options_.port = forward_port;
+        tunnels_configured_ = true;
+
+        // 7. Spawn background device daemon
+        if (!spawn_remote_daemon(remote_jar)) {
+            teardown();
+            return false;
+        }
+    } else {
+        std::cout << "[Session] Detected existing daemon listening on @" << options_.socket_name << ".\n";
+        std::cout << "[Session] Configuring forward socket tunnel (tcp:" << options_.port
+                  << " -> localabstract:" << options_.socket_name << ")...\n";
+        uint16_t forward_port = tunnel_->setup_forward(options_.socket_name, options_.port);
+        if (forward_port == 0) {
+            forward_port = tunnel_->setup_forward(options_.socket_name, 0);
+        }
+        if (forward_port == 0) {
+            std::cerr << "[Session] Error: Failed to establish ADB port forwarding.\n";
+            teardown();
+            return false;
+        }
+        options_.port = forward_port;
+        tunnels_configured_ = true;
     }
 
     // 8. Connect dual channels and execute handshake with retry loop
     std::cout << "[Session] Connecting to daemon on 127.0.0.1:" << options_.port << "...\n";
     bool connected = false;
-    for (int attempt = 1; attempt <= 20; ++attempt) {
+    for (int attempt = 1; attempt <= 30; ++attempt) {
         if (daemon_pid_ > 0) {
             int status = 0;
             pid_t died = waitpid(daemon_pid_, &status, WNOHANG);
             if (died > 0) {
                 std::cerr << "[Session] Error: ADB daemon process exited prematurely (status " << status << ").\n";
+                std::string log_file = "/tmp/mirror_server_" + options_.serial + ".log";
+                std::ifstream lf(log_file);
+                if (lf) {
+                    std::cerr << "[Session] Captured daemon log:\n" << lf.rdbuf() << "\n";
+                }
                 daemon_pid_ = -1;
                 teardown();
                 return false;
@@ -254,7 +288,7 @@ bool AndroidAdbSession::initialize() {
             connected = true;
             break;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
     if (!connected) {

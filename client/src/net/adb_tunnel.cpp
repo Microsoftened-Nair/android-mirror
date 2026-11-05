@@ -111,7 +111,7 @@ bool AdbTunnel::push_server_jar(const std::filesystem::path& local_jar_path,
     }
 }
 
-uint16_t AdbTunnel::setup_forward(const std::string& socket_name) {
+uint16_t AdbTunnel::setup_forward(const std::string& socket_name, uint16_t local_port) {
     try {
         std::string target_socket = socket_name.empty() ? socket_name_ : socket_name;
         if (target_socket.empty()) {
@@ -122,9 +122,12 @@ uint16_t AdbTunnel::setup_forward(const std::string& socket_name) {
             remove_forward();
         }
 
-        uint16_t port = allocate_ephemeral_port();
+        uint16_t port = local_port;
         if (port == 0) {
-            return 0;
+            port = allocate_ephemeral_port();
+            if (port == 0) {
+                return 0;
+            }
         }
 
         std::vector<std::string> args;
@@ -170,6 +173,29 @@ bool AdbTunnel::remove_forward() {
         return res.success();
     } catch (...) {
         local_port_ = 0;
+        return false;
+    }
+}
+
+bool AdbTunnel::is_socket_listening(const std::string& socket_name) {
+    try {
+        std::string target_socket = socket_name.empty() ? socket_name_ : socket_name;
+        if (target_socket.empty()) {
+            return false;
+        }
+
+        std::vector<std::string> args;
+        args.emplace_back("adb");
+        if (!serial_.empty()) {
+            args.emplace_back("-s");
+            args.emplace_back(serial_);
+        }
+        args.emplace_back("shell");
+        args.emplace_back("grep -q " + target_socket + " /proc/net/unix");
+
+        ProcessResult res = executor_(args);
+        return res.success();
+    } catch (...) {
         return false;
     }
 }

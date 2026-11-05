@@ -52,17 +52,22 @@ public:
                          const std::string& remote_path = "/data/local/tmp/mirror-server.jar");
 
     /**
-     * Creates an ephemeral TCP listening socket on 127.0.0.1:0, determines HOST_PORT,
+     * Creates an ephemeral TCP listening socket on 127.0.0.1:0 (or uses local_port if provided),
      * closes the probe socket, and runs:
      * adb -s <serial> forward tcp:<HOST_PORT> localabstract:<socket_name>
      * Returns the host port on success, or 0 on failure.
      */
-    uint16_t setup_forward(const std::string& socket_name = "");
+    uint16_t setup_forward(const std::string& socket_name = "", uint16_t local_port = 0);
 
     /**
      * Executes: adb -s <serial> forward --remove tcp:<HOST_PORT>
      */
     bool remove_forward();
+
+    /**
+     * Checks if a given abstract Unix domain socket is actively listening on the target device.
+     */
+    bool is_socket_listening(const std::string& socket_name = "");
 
     /**
      * Executes: adb -s <serial> reverse tcp:<remote_port> tcp:<host_port>
