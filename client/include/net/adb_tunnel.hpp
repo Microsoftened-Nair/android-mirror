@@ -64,10 +64,23 @@ public:
      */
     bool remove_forward();
 
+    /**
+     * Executes: adb -s <serial> reverse tcp:<remote_port> tcp:<host_port>
+     * Returns true on success.
+     */
+    bool setup_reverse(uint16_t remote_port, uint16_t host_port);
+
+    /**
+     * Executes: adb -s <serial> reverse --remove tcp:<remote_port>
+     */
+    bool remove_reverse(uint16_t remote_port = 0);
+
     [[nodiscard]] const std::string& serial() const noexcept { return serial_; }
     [[nodiscard]] const std::string& socket_name() const noexcept { return socket_name_; }
     [[nodiscard]] uint16_t local_port() const noexcept { return local_port_; }
+    [[nodiscard]] uint16_t reverse_port() const noexcept { return reverse_port_; }
     [[nodiscard]] bool is_forwarded() const noexcept { return local_port_ != 0; }
+    [[nodiscard]] bool is_reversed() const noexcept { return reverse_port_ != 0; }
 
     /**
      * Parses `adb devices -l` output to extract connected device serials.
@@ -89,6 +102,7 @@ private:
     std::string serial_;
     std::string socket_name_;
     uint16_t local_port_{0};
+    uint16_t reverse_port_{0};
     ProcessExecutor executor_;
 };
 

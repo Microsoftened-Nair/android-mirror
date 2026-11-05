@@ -85,6 +85,24 @@ void test_command_construction() {
         "adb", "-s", "device123", "forward", "--remove", "tcp:" + std::to_string(port)
     }));
 
+    // 6. setup_reverse
+    assert(tunnel.setup_reverse(27183, 27183));
+    assert(tunnel.reverse_port() == 27183);
+    assert(tunnel.is_reversed());
+    assert(executed_commands.size() == 6);
+    assert(executed_commands[5] == std::vector<std::string>({
+        "adb", "-s", "device123", "reverse", "tcp:27183", "tcp:27183"
+    }));
+
+    // 7. remove_reverse
+    assert(tunnel.remove_reverse(27183));
+    assert(tunnel.reverse_port() == 0);
+    assert(!tunnel.is_reversed());
+    assert(executed_commands.size() == 7);
+    assert(executed_commands[6] == std::vector<std::string>({
+        "adb", "-s", "device123", "reverse", "--remove", "tcp:27183"
+    }));
+
     std::cout << "[PASS] test_command_construction" << std::endl;
 }
 

@@ -1,103 +1,140 @@
 #include "app/client_app.hpp"
-#include "net/adb_tunnel.hpp"
-#include "net/socket_client.hpp"
+#include "session/android_adb_session.hpp"
 
-#include <chrono>
+#include <atomic>
+#include <csignal>
 #include <cstdlib>
 #include <iostream>
-#include <memory>
 #include <string>
-#include <thread>
+
+namespace {
+
+std::atomic<mirror::session::AndroidAdbSession*> g_active_session{nullptr};
+std::atomic<mirror::app::ClientApp*> g_active_app{nullptr};
+
+void signal_handler(int sig) {
+    auto* app = g_active_app.load();
+    if (app) {
+        app->request_stop();
+    }
+    auto* session = g_active_session.load();
+    if (session) {
+        session->teardown();
+    }
+    std::signal(sig, SIG_DFL);
+    std::raise(sig);
+}
+
+void atexit_handler() {
+    auto* session = g_active_session.load();
+    if (session) {
+        session->teardown();
+    }
+}
+
+void print_help(const char* prog) {
+    std::cout << "Usage: " << prog << " [options]\n\n"
+              << "Options:\n"
+              << "  -s, --serial <serial>       Target Android device serial\n"
+              << "  -p, --port <port>           Local TCP port for tunnel (default: 27183)\n"
+              << "  --server-path <path>        Custom path to server.jar artifact\n"
+              << "  --socket-name <name>        Abstract Unix domain socket name (default: mirror)\n"
+              << "  --max-size <dimension>      Maximum streaming resolution bound (default: 1920)\n"
+              << "  --bit-rate <bps>            Target H.264 video bitrate (default: 8000000)\n"
+              << "  --stay-awake <true|false>   Keep Android device awake while connected (default: true)\n"
+              << "  --title <title>             Window title override\n"
+              << "  -h, --help                  Show this help message\n";
+}
+
+} // namespace
 
 int main(int argc, char* argv[]) {
-    std::string serial;
-    uint16_t port = 27183;
-    int canvas_w = 1080;
-    int canvas_h = 2400;
-    std::string device_name = "Android Device";
-
-    std::string socket_name;
+    mirror::session::AndroidSessionOptions session_opts;
+    std::string custom_title;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg.rfind("--serial=", 0) == 0) {
-            serial = arg.substr(9);
+        if (arg == "-h" || arg == "--help") {
+            print_help(argv[0]);
+            return 0;
+        } else if (arg.rfind("--serial=", 0) == 0) {
+            session_opts.serial = arg.substr(9);
         } else if ((arg == "-s" || arg == "--serial") && i + 1 < argc) {
-            serial = argv[++i];
-        } else if (arg.rfind("--socket-name=", 0) == 0) {
-            socket_name = arg.substr(14);
-        } else if (arg == "--socket-name" && i + 1 < argc) {
-            socket_name = argv[++i];
+            session_opts.serial = argv[++i];
         } else if (arg.rfind("--port=", 0) == 0) {
-            port = static_cast<uint16_t>(std::atoi(arg.substr(7).c_str()));
+            session_opts.port = static_cast<uint16_t>(std::atoi(arg.substr(7).c_str()));
         } else if ((arg == "-p" || arg == "--port") && i + 1 < argc) {
-            port = static_cast<uint16_t>(std::atoi(argv[++i]));
-        } else if (arg.rfind("--width=", 0) == 0) {
-            canvas_w = std::atoi(arg.substr(8).c_str());
-        } else if (arg == "--width" && i + 1 < argc) {
-            canvas_w = std::atoi(argv[++i]);
-        } else if (arg.rfind("--height=", 0) == 0) {
-            canvas_h = std::atoi(arg.substr(9).c_str());
-        } else if (arg == "--height" && i + 1 < argc) {
-            canvas_h = std::atoi(argv[++i]);
+            session_opts.port = static_cast<uint16_t>(std::atoi(argv[++i]));
+        } else if (arg.rfind("--server-path=", 0) == 0) {
+            session_opts.server_jar_path = arg.substr(14);
+        } else if (arg == "--server-path" && i + 1 < argc) {
+            session_opts.server_jar_path = argv[++i];
+        } else if (arg.rfind("--socket-name=", 0) == 0) {
+            session_opts.socket_name = arg.substr(14);
+        } else if (arg == "--socket-name" && i + 1 < argc) {
+            session_opts.socket_name = argv[++i];
+        } else if (arg.rfind("--max-size=", 0) == 0) {
+            session_opts.max_size = std::atoi(arg.substr(11).c_str());
+        } else if (arg == "--max-size" && i + 1 < argc) {
+            session_opts.max_size = std::atoi(argv[++i]);
+        } else if (arg.rfind("--bit-rate=", 0) == 0) {
+            session_opts.bit_rate = std::atoi(arg.substr(11).c_str());
+        } else if (arg == "--bit-rate" && i + 1 < argc) {
+            session_opts.bit_rate = std::atoi(argv[++i]);
+        } else if (arg.rfind("--stay-awake=", 0) == 0) {
+            std::string val = arg.substr(13);
+            session_opts.stay_awake = (val == "true" || val == "1");
+        } else if (arg == "--stay-awake" && i + 1 < argc) {
+            std::string val = argv[++i];
+            session_opts.stay_awake = (val == "true" || val == "1");
         } else if (arg.rfind("--title=", 0) == 0) {
-            device_name = arg.substr(8);
+            custom_title = arg.substr(8);
         } else if (arg == "--title" && i + 1 < argc) {
-            device_name = argv[++i];
+            custom_title = argv[++i];
         }
     }
 
-    (void)port;
+    // Register POSIX signal handlers and std::atexit for guaranteed cleanup
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
+    std::atexit(atexit_handler);
 
-    std::cout << "[Client] Starting Android Mirror Client..." << std::endl;
+    std::cout << "=== Android Mirror Client ===" << std::endl;
 
-    int video_fd = -1;
-    int control_fd = -1;
-    mirror::net::SocketClient client;
-    std::unique_ptr<mirror::net::AdbTunnel> tunnel;
+    mirror::session::AndroidAdbSession session(session_opts);
+    g_active_session.store(&session);
 
-    if (!serial.empty() && !socket_name.empty()) {
-        std::cout << "[Client] Establishing ADB tunnel for serial: " << serial
-                  << " (abstract socket: " << socket_name << ")..." << std::endl;
-        tunnel = std::make_unique<mirror::net::AdbTunnel>(serial, socket_name);
-        uint16_t forward_port = tunnel->setup_forward(socket_name);
-        if (forward_port == 0) {
-            std::cerr << "[Client] Error: Failed to set up ADB port forwarding." << std::endl;
-            return 1;
-        }
-        std::cout << "[Client] ADB tunnel established: tcp:127.0.0.1:" << forward_port
-                  << " -> localabstract:" << socket_name << std::endl;
-
-        bool connected = false;
-        for (int attempt = 1; attempt <= 15; ++attempt) {
-            std::cout << "[Client] Connecting to daemon (attempt " << attempt << "/15)..." << std::endl;
-            if (client.connect("127.0.0.1", forward_port)) {
-                connected = true;
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(250));
-        }
-
-        if (!connected) {
-            std::cerr << "[Client] Error: Could not connect to Android server daemon on 127.0.0.1:"
-                      << forward_port << std::endl;
-            return 1;
-        }
-
-        video_fd = client.video_fd();
-        control_fd = client.control_fd();
-        canvas_w = static_cast<int>(client.width());
-        canvas_h = static_cast<int>(client.height());
-        if (!client.device_name().empty()) {
-            device_name = client.device_name();
-        }
-        std::cout << "[Client] Handshake completed successfully!" << std::endl;
-        std::cout << "[Client] Stream metadata: " << device_name << " ("
-                  << canvas_w << "x" << canvas_h << ", Codec: H.264)" << std::endl;
-        std::cout << "[Client] Video FD: " << video_fd << ", Control FD: " << control_fd << std::endl;
+    if (!session.initialize()) {
+        std::cerr << "[Client] Initialization failed. Exiting." << std::endl;
+        g_active_session.store(nullptr);
+        return 1;
     }
 
-    std::cout << "[Client] Launching display and input event loop..." << std::endl;
-    mirror::app::ClientApp app(video_fd, control_fd, canvas_w, canvas_h, device_name);
-    return app.run();
+    std::string window_title = custom_title.empty() ? session.device_name() : custom_title;
+    if (window_title.empty()) {
+        window_title = "Android Mirror";
+    }
+
+    int result = 0;
+    {
+        mirror::app::ClientApp app(
+            session.video_fd(),
+            session.control_fd(),
+            static_cast<int>(session.width()),
+            static_cast<int>(session.height()),
+            window_title
+        );
+        g_active_app.store(&app);
+
+        std::cout << "[Client] Launching display and presentation loop..." << std::endl;
+        result = app.run();
+        g_active_app.store(nullptr);
+    }
+
+    std::cout << "[Client] Tearing down device session..." << std::endl;
+    session.teardown();
+    g_active_session.store(nullptr);
+
+    std::cout << "[Client] Clean shutdown complete." << std::endl;
+    return result;
 }

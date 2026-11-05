@@ -18,18 +18,23 @@ AdbTunnel::AdbTunnel(std::string serial, std::string socket_name)
     : serial_(std::move(serial)),
       socket_name_(std::move(socket_name)),
       local_port_(0),
+      reverse_port_(0),
       executor_(&AdbTunnel::default_execute) {}
 
 AdbTunnel::AdbTunnel(std::string serial, std::string socket_name, ProcessExecutor executor)
     : serial_(std::move(serial)),
       socket_name_(std::move(socket_name)),
       local_port_(0),
+      reverse_port_(0),
       executor_(executor ? std::move(executor) : &AdbTunnel::default_execute) {}
 
 AdbTunnel::~AdbTunnel() {
     try {
         if (local_port_ != 0) {
             remove_forward();
+        }
+        if (reverse_port_ != 0) {
+            remove_reverse(reverse_port_);
         }
     } catch (...) {
         // Enforce no unhandled exceptions across module boundaries
@@ -40,8 +45,10 @@ AdbTunnel::AdbTunnel(AdbTunnel&& other) noexcept
     : serial_(std::move(other.serial_)),
       socket_name_(std::move(other.socket_name_)),
       local_port_(other.local_port_),
+      reverse_port_(other.reverse_port_),
       executor_(std::move(other.executor_)) {
     other.local_port_ = 0;
+    other.reverse_port_ = 0;
 }
 
 AdbTunnel& AdbTunnel::operator=(AdbTunnel&& other) noexcept {
@@ -50,13 +57,18 @@ AdbTunnel& AdbTunnel::operator=(AdbTunnel&& other) noexcept {
             if (local_port_ != 0) {
                 remove_forward();
             }
+            if (reverse_port_ != 0) {
+                remove_reverse(reverse_port_);
+            }
         } catch (...) {
         }
         serial_ = std::move(other.serial_);
         socket_name_ = std::move(other.socket_name_);
         local_port_ = other.local_port_;
+        reverse_port_ = other.reverse_port_;
         executor_ = std::move(other.executor_);
         other.local_port_ = 0;
+        other.reverse_port_ = 0;
     }
     return *this;
 }
@@ -158,6 +170,65 @@ bool AdbTunnel::remove_forward() {
         return res.success();
     } catch (...) {
         local_port_ = 0;
+        return false;
+    }
+}
+
+bool AdbTunnel::setup_reverse(uint16_t remote_port, uint16_t host_port) {
+    try {
+        if (remote_port == 0 || host_port == 0) {
+            return false;
+        }
+
+        if (reverse_port_ != 0) {
+            remove_reverse(reverse_port_);
+        }
+
+        std::vector<std::string> args;
+        args.emplace_back("adb");
+        if (!serial_.empty()) {
+            args.emplace_back("-s");
+            args.emplace_back(serial_);
+        }
+        args.emplace_back("reverse");
+        args.emplace_back("tcp:" + std::to_string(remote_port));
+        args.emplace_back("tcp:" + std::to_string(host_port));
+
+        ProcessResult res = executor_(args);
+        if (res.success()) {
+            reverse_port_ = remote_port;
+            return true;
+        }
+        return false;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool AdbTunnel::remove_reverse(uint16_t remote_port) {
+    try {
+        uint16_t port_to_remove = (remote_port != 0) ? remote_port : reverse_port_;
+        if (port_to_remove == 0) {
+            return true;
+        }
+
+        std::vector<std::string> args;
+        args.emplace_back("adb");
+        if (!serial_.empty()) {
+            args.emplace_back("-s");
+            args.emplace_back(serial_);
+        }
+        args.emplace_back("reverse");
+        args.emplace_back("--remove");
+        args.emplace_back("tcp:" + std::to_string(port_to_remove));
+
+        ProcessResult res = executor_(args);
+        if (port_to_remove == reverse_port_) {
+            reverse_port_ = 0;
+        }
+        return res.success();
+    } catch (...) {
+        reverse_port_ = 0;
         return false;
     }
 }

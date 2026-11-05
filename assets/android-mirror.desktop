@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Android Mirror
+Comment=Low-latency Android screen mirroring and input control
+Exec=android-mirror
+Icon=android-mirror
+Terminal=false
+Type=Application
+Categories=Utility;Development;
+Keywords=android;mirror;screen;cast;display;usb;
+StartupNotify=true
