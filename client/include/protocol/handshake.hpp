@@ -1,11 +1,13 @@
 #pragma once
 
-#include <cstdint>
-#include <cstddef>
-#include <cstring>
-#include <bit>
+#include "protocol/endian.hpp"
 
-namespace mirror {
+#include <bit>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+
+namespace mirror::protocol {
 
 // Magic identifier "MIRR"
 inline constexpr uint8_t MAGIC_VALUE[4] = {0x4D, 0x49, 0x52, 0x52};
@@ -54,23 +56,6 @@ static_assert(sizeof(ClientAckPacket) == 8, "ClientAckPacket must be exactly 8 b
 
 #pragma pack(pop)
 
-// Endian conversion helper functions
-[[nodiscard]] constexpr uint32_t to_big_endian(uint32_t val) noexcept {
-    if constexpr (std::endian::native == std::endian::big) {
-        return val;
-    } else {
-#if __cpp_lib_byteswap >= 202110L
-        return std::byteswap(val);
-#else
-        return __builtin_bswap32(val);
-#endif
-    }
-}
-
-[[nodiscard]] constexpr uint32_t from_big_endian(uint32_t val) noexcept {
-    return to_big_endian(val);
-}
-
 // Zero-allocation serialization/deserialization helpers
 [[nodiscard]] inline VideoGeometryPacket to_network_order(VideoGeometryPacket pkt) noexcept {
     pkt.codec_id = to_big_endian(pkt.codec_id);
@@ -98,18 +83,33 @@ static_assert(sizeof(ClientAckPacket) == 8, "ClientAckPacket must be exactly 8 b
     return pkt;
 }
 
+} // namespace mirror::protocol
+
+namespace mirror {
+using mirror::protocol::MAGIC_VALUE;
+using mirror::protocol::CODEC_H264;
+using mirror::protocol::CLIENT_VERSION;
+using mirror::protocol::FLAG_SCREEN_OFF;
+using mirror::protocol::FLAG_STAY_AWAKE;
+using mirror::protocol::DeviceIdPacket;
+using mirror::protocol::VideoGeometryPacket;
+using mirror::protocol::ClientAckPacket;
+using mirror::protocol::to_big_endian;
+using mirror::protocol::from_big_endian;
+using mirror::protocol::to_network_order;
+using mirror::protocol::from_network_order;
 } // namespace mirror
 
 // Unqualified aliases for direct global namespace usage
-using mirror::MAGIC_VALUE;
-using mirror::CODEC_H264;
-using mirror::CLIENT_VERSION;
-using mirror::FLAG_SCREEN_OFF;
-using mirror::FLAG_STAY_AWAKE;
-using mirror::DeviceIdPacket;
-using mirror::VideoGeometryPacket;
-using mirror::ClientAckPacket;
-using mirror::to_big_endian;
-using mirror::from_big_endian;
-using mirror::to_network_order;
-using mirror::from_network_order;
+using mirror::protocol::MAGIC_VALUE;
+using mirror::protocol::CODEC_H264;
+using mirror::protocol::CLIENT_VERSION;
+using mirror::protocol::FLAG_SCREEN_OFF;
+using mirror::protocol::FLAG_STAY_AWAKE;
+using mirror::protocol::DeviceIdPacket;
+using mirror::protocol::VideoGeometryPacket;
+using mirror::protocol::ClientAckPacket;
+using mirror::protocol::to_big_endian;
+using mirror::protocol::from_big_endian;
+using mirror::protocol::to_network_order;
+using mirror::protocol::from_network_order;

@@ -8,7 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(MSVC)
     add_compile_options(/W4 /permissive- /utf-8)
 else()
-    add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
+    add_compile_options(-Wall -Wextra -pedantic -Wconversion)
 endif()
 
 # Setup paths for custom/local tool locations
@@ -58,6 +58,13 @@ add_custom_target(mirror-desktop ALL DEPENDS MirrorDesktop)
 
 # Alias for backwards compatibility
 add_custom_target(mirror_client ALL DEPENDS MirrorDesktop)
+
+# Alias desktop-client binary for parity with audit specification
+add_custom_command(TARGET MirrorDesktop POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_NAME:MirrorDesktop> ${CMAKE_CURRENT_BINARY_DIR}/desktop-client
+    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE_NAME:MirrorDesktop> ${CMAKE_CURRENT_BINARY_DIR}/mirror_client
+    COMMENT "Generating desktop-client and mirror_client symlinks"
+)
 
 # Unit Test Targets & CTest
 enable_testing()

@@ -41,9 +41,15 @@ public class InputManagerBridge {
         // Fallback to IInputManager$Stub.asInterface(ServiceManager.getService("input"))
         if (im == null || injectMethod == null) {
             IBinder binder = ServiceManager.getService("input");
+            if (binder == null) {
+                throw new ReflectiveOperationException("ServiceManager returned null for 'input' service");
+            }
             Class<?> stubClass = Class.forName("android.hardware.input.IInputManager$Stub");
             Method asInterface = stubClass.getMethod("asInterface", IBinder.class);
             im = asInterface.invoke(null, binder);
+            if (im == null) {
+                throw new ReflectiveOperationException("Failed to obtain IInputManager interface from binder");
+            }
             injectMethod = findInjectMethod(im.getClass());
         }
 

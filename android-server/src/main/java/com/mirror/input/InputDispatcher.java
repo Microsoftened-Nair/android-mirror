@@ -82,7 +82,8 @@ public class InputDispatcher implements ControlEventListener {
 
         try {
             inputManagerBridge.injectInputEvent(event, InputManagerBridge.INJECT_INPUT_EVENT_MODE_ASYNC);
-        } catch (ReflectiveOperationException ignored) {
+        } catch (ReflectiveOperationException e) {
+            System.err.println("InputDispatcher failed to inject touch event: " + e.getMessage());
         } finally {
             event.recycle();
             if (action == MotionEvent.ACTION_UP) {
@@ -109,7 +110,8 @@ public class InputDispatcher implements ControlEventListener {
 
         try {
             inputManagerBridge.injectInputEvent(event, InputManagerBridge.INJECT_INPUT_EVENT_MODE_ASYNC);
-        } catch (ReflectiveOperationException ignored) {
+        } catch (ReflectiveOperationException e) {
+            System.err.println("InputDispatcher failed to inject key event: " + e.getMessage());
         }
     }
 
@@ -146,7 +148,8 @@ public class InputDispatcher implements ControlEventListener {
 
         try {
             inputManagerBridge.injectInputEvent(event, InputManagerBridge.INJECT_INPUT_EVENT_MODE_ASYNC);
-        } catch (ReflectiveOperationException ignored) {
+        } catch (ReflectiveOperationException e) {
+            System.err.println("InputDispatcher failed to inject scroll event: " + e.getMessage());
         } finally {
             event.recycle();
             pointerCoords[0].setAxisValue(MotionEvent.AXIS_HSCROLL, 0.0f);
@@ -215,7 +218,8 @@ public class InputDispatcher implements ControlEventListener {
                     }
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            System.err.println("InputDispatcher failed to set clipboard text: " + t.getMessage());
         }
     }
 }

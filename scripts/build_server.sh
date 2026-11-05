@@ -26,15 +26,20 @@ fi
 # Ensure output directories exist and are clean
 mkdir -p bin/classes
 mkdir -p bin/dist
+mkdir -p build
 rm -rf bin/classes/*
 rm -rf bin/dist/server.jar
+rm -f build/server.jar
 
-# Compile Java sources
+# Compile Java sources cleanly without options warnings
 echo "Compiling Java 11 sources with javac..."
-javac -source 11 -target 11 -cp "${ANDROID_JAR}" -d bin/classes $(find android-server/src/main/java -name "*.java")
+javac -source 11 -target 11 -Xlint:-options -cp "${ANDROID_JAR}" -d bin/classes $(find android-server/src/main/java -name "*.java")
 
 # Package into server.jar with d8
 echo "Running d8 bytecode packaging..."
 "${D8}" --output bin/dist/server.jar --lib "${ANDROID_JAR}" $(find bin/classes -name "*.class")
 
-echo "Build successful: bin/dist/server.jar"
+# Ensure build/server.jar exists at the canonical path expected by audit
+cp bin/dist/server.jar build/server.jar
+
+echo "Build successful: bin/dist/server.jar and build/server.jar"

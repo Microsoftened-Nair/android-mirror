@@ -23,6 +23,10 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 }
 
+compileJava {
+    options.compilerArgs += ['-Xlint:-options']
+}
+
 test {
     useJUnitPlatform()
 }
@@ -70,5 +74,9 @@ task buildServerJar(type: Exec) {
             }
         }
         dexFile.delete()
+        copy {
+            from serverJar
+            into rootProject.file("build")
+        }
     }
 }

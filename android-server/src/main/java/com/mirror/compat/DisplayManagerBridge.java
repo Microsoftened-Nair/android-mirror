@@ -129,7 +129,9 @@ public final class DisplayManagerBridge {
         method.invoke(null, token, mode);
     }
 
-    public static Point getDisplayRealSize(int displayId) {
+    public static Point getDisplayRealSize(int displayId) throws ReflectiveOperationException {
+        Throwable lastException = null;
+
         // 1. Try DisplayManagerGlobal.getDisplayInfo(displayId)
         try {
             Object dmg = getDisplayManagerGlobal();
@@ -148,31 +150,37 @@ public final class DisplayManagerBridge {
                     return new Point(w, h);
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            lastException = t;
         }
 
         // 2. Try IWindowManager.getInitialDisplaySize(displayId, outPoint)
         try {
             IBinder binder = ServiceManager.getService("window");
-            Class<?> stubClass = Class.forName("android.view.IWindowManager$Stub");
-            Method asInterface = stubClass.getMethod("asInterface", IBinder.class);
-            Object wm = asInterface.invoke(null, binder);
+            if (binder != null) {
+                Class<?> stubClass = Class.forName("android.view.IWindowManager$Stub");
+                Method asInterface = stubClass.getMethod("asInterface", IBinder.class);
+                Object wm = asInterface.invoke(null, binder);
 
-            Point outPoint = new Point();
-            Method getInitialSize;
-            try {
-                getInitialSize = wm.getClass().getMethod("getInitialDisplaySize", int.class, Point.class);
-            } catch (NoSuchMethodException ignored) {
-                getInitialSize = wm.getClass().getMethod("getBaseDisplaySize", int.class, Point.class);
+                Point outPoint = new Point();
+                Method getInitialSize;
+                try {
+                    getInitialSize = wm.getClass().getMethod("getInitialDisplaySize", int.class, Point.class);
+                } catch (NoSuchMethodException ignored) {
+                    getInitialSize = wm.getClass().getMethod("getBaseDisplaySize", int.class, Point.class);
+                }
+                getInitialSize.invoke(wm, displayId, outPoint);
+                if (outPoint.x > 0 && outPoint.y > 0) {
+                    return outPoint;
+                }
             }
-            getInitialSize.invoke(wm, displayId, outPoint);
-            if (outPoint.x > 0 && outPoint.y > 0) {
-                return outPoint;
+        } catch (Throwable t) {
+            if (lastException != null) {
+                t.addSuppressed(lastException);
             }
-        } catch (Throwable ignored) {
+            lastException = t;
         }
 
-        // Safe fallback default if neither service can be reached
-        return new Point(1080, 2400);
+        throw new ReflectiveOperationException("Failed to determine display size via DisplayManagerGlobal or IWindowManager", lastException);
     }
 }

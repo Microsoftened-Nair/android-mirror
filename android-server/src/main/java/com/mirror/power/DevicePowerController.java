@@ -45,7 +45,8 @@ public class DevicePowerController {
                     }
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            System.err.println("DevicePowerController failed to initialize IPowerManager: " + t.getMessage());
         }
     }
 
@@ -56,7 +57,8 @@ public class DevicePowerController {
             if (token != null) {
                 DisplayManagerBridge.setDisplayPowerMode(token, mode);
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            System.err.println("DevicePowerController failed to set screen power mode on SurfaceControl: " + e.getMessage());
         }
     }
 
@@ -76,7 +78,8 @@ public class DevicePowerController {
 
             acquireWakeLockMethod.invoke(powerManager, args);
             wakeLockHeld = true;
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            System.err.println("DevicePowerController failed to acquire wake lock: " + e.getMessage());
         }
     }
 
@@ -95,7 +98,8 @@ public class DevicePowerController {
 
             releaseWakeLockMethod.invoke(powerManager, args);
             wakeLockHeld = false;
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            System.err.println("DevicePowerController failed to release wake lock: " + e.getMessage());
         }
     }
 
