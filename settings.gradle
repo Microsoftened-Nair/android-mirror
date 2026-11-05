@@ -1,2 +1,2 @@
 rootProject.name = 'android_mirror'
-include ':server'
+include ':android-server'

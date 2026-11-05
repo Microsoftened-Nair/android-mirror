@@ -1,8 +1,10 @@
 .gradle/
 build/
 **/build/
+bin/
 *.class
 *.jar
+!android-server/libs/android.jar
 !server/libs/android.jar
 !gradle/wrapper/gradle-wrapper.jar
 .DS_Store
