@@ -34,19 +34,51 @@ public final class DisplayManagerBridge {
                                                       Surface surface, int flags) throws ReflectiveOperationException {
         Object dmg = getDisplayManagerGlobal();
         if (createVirtualDisplayMethod == null) {
+            // 1. Try legacy signature (API <= 29): (String name, int width, int height, int displayId, Surface surface, int flags, ...)
             for (Method m : dmg.getClass().getDeclaredMethods()) {
                 if ("createVirtualDisplay".equals(m.getName())) {
                     Class<?>[] pts = m.getParameterTypes();
                     if (pts.length >= 6 && pts[0] == String.class && pts[1] == int.class && pts[2] == int.class) {
+                        m.setAccessible(true);
                         createVirtualDisplayMethod = m;
                         break;
                     }
                 }
             }
+
+            // 2. Try VirtualDisplayConfig signature taking String packageName (API 30-33)
             if (createVirtualDisplayMethod == null) {
-                // Fallback for modern VirtualDisplayConfig signature if legacy string method is absent
                 for (Method m : dmg.getClass().getDeclaredMethods()) {
                     if ("createVirtualDisplay".equals(m.getName())) {
+                        Class<?>[] pts = m.getParameterTypes();
+                        if (pts.length == 5 && pts[0] == String.class) {
+                            m.setAccessible(true);
+                            createVirtualDisplayMethod = m;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // 3. Try modern VirtualDisplayConfig signature (API 34+)
+            if (createVirtualDisplayMethod == null) {
+                for (Method m : dmg.getClass().getDeclaredMethods()) {
+                    if ("createVirtualDisplay".equals(m.getName())) {
+                        Class<?>[] pts = m.getParameterTypes();
+                        if (pts.length == 3) {
+                            m.setAccessible(true);
+                            createVirtualDisplayMethod = m;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // 4. Any other createVirtualDisplay fallback
+            if (createVirtualDisplayMethod == null) {
+                for (Method m : dmg.getClass().getDeclaredMethods()) {
+                    if ("createVirtualDisplay".equals(m.getName())) {
+                        m.setAccessible(true);
                         createVirtualDisplayMethod = m;
                         break;
                     }
@@ -58,17 +90,17 @@ public final class DisplayManagerBridge {
             throw new NoSuchMethodException("No matching createVirtualDisplay method found on DisplayManagerGlobal");
         }
 
+        createVirtualDisplayMethod.setAccessible(true);
         Class<?>[] paramTypes = createVirtualDisplayMethod.getParameterTypes();
-        Object[] args = new Object[paramTypes.length];
 
-        if (paramTypes.length >= 6 && paramTypes[0] == String.class) {
+        if (paramTypes.length >= 6 && paramTypes[0] == String.class && paramTypes[1] == int.class) {
+            Object[] args = new Object[paramTypes.length];
             args[0] = name;
             args[1] = width;
             args[2] = height;
             args[3] = displayId;
             args[4] = surface;
             args[5] = flags;
-            // Any remaining parameters (callback, handler, uniqueId) remain null
             return (VirtualDisplay) createVirtualDisplayMethod.invoke(dmg, args);
         } else {
             // Build VirtualDisplayConfig reflectively
@@ -79,10 +111,25 @@ public final class DisplayManagerBridge {
             builder.getClass().getMethod("setFlags", int.class).invoke(builder, flags);
             Object config = builder.getClass().getMethod("build").invoke(builder);
 
-            if (paramTypes.length == 3) {
+            if (paramTypes.length == 5) {
+                Object arg0 = (paramTypes[0] == String.class) ? "com.mirror" : null;
+                return (VirtualDisplay) createVirtualDisplayMethod.invoke(dmg, arg0, null, config, null, null);
+            } else if (paramTypes.length == 3) {
                 return (VirtualDisplay) createVirtualDisplayMethod.invoke(dmg, config, null, null);
-            } else {
+            } else if (paramTypes.length == 1) {
                 return (VirtualDisplay) createVirtualDisplayMethod.invoke(dmg, config);
+            } else {
+                Object[] args = new Object[paramTypes.length];
+                for (int i = 0; i < paramTypes.length; i++) {
+                    if (paramTypes[i].getName().contains("VirtualDisplayConfig")) {
+                        args[i] = config;
+                    } else if (paramTypes[i] == String.class) {
+                        args[i] = "com.mirror";
+                    } else {
+                        args[i] = null;
+                    }
+                }
+                return (VirtualDisplay) createVirtualDisplayMethod.invoke(dmg, args);
             }
         }
     }

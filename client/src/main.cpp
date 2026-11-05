@@ -2,9 +2,12 @@
 #include "net/adb_tunnel.hpp"
 #include "net/socket_client.hpp"
 
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
+#include <thread>
 
 int main(int argc, char* argv[]) {
     std::string serial;
@@ -46,27 +49,55 @@ int main(int argc, char* argv[]) {
 
     (void)port;
 
-    std::cout << "Starting Android Mirror Client..." << std::endl;
+    std::cout << "[Client] Starting Android Mirror Client..." << std::endl;
 
     int video_fd = -1;
     int control_fd = -1;
     mirror::net::SocketClient client;
+    std::unique_ptr<mirror::net::AdbTunnel> tunnel;
+
     if (!serial.empty() && !socket_name.empty()) {
-        mirror::net::AdbTunnel tunnel(serial, socket_name);
-        uint16_t forward_port = tunnel.setup_forward(socket_name);
-        if (forward_port > 0) {
-            if (client.connect("127.0.0.1", forward_port)) {
-                video_fd = client.video_fd();
-                control_fd = client.control_fd();
-                canvas_w = static_cast<int>(client.width());
-                canvas_h = static_cast<int>(client.height());
-                if (!client.device_name().empty()) {
-                    device_name = client.device_name();
-                }
-            }
+        std::cout << "[Client] Establishing ADB tunnel for serial: " << serial
+                  << " (abstract socket: " << socket_name << ")..." << std::endl;
+        tunnel = std::make_unique<mirror::net::AdbTunnel>(serial, socket_name);
+        uint16_t forward_port = tunnel->setup_forward(socket_name);
+        if (forward_port == 0) {
+            std::cerr << "[Client] Error: Failed to set up ADB port forwarding." << std::endl;
+            return 1;
         }
+        std::cout << "[Client] ADB tunnel established: tcp:127.0.0.1:" << forward_port
+                  << " -> localabstract:" << socket_name << std::endl;
+
+        bool connected = false;
+        for (int attempt = 1; attempt <= 15; ++attempt) {
+            std::cout << "[Client] Connecting to daemon (attempt " << attempt << "/15)..." << std::endl;
+            if (client.connect("127.0.0.1", forward_port)) {
+                connected = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+
+        if (!connected) {
+            std::cerr << "[Client] Error: Could not connect to Android server daemon on 127.0.0.1:"
+                      << forward_port << std::endl;
+            return 1;
+        }
+
+        video_fd = client.video_fd();
+        control_fd = client.control_fd();
+        canvas_w = static_cast<int>(client.width());
+        canvas_h = static_cast<int>(client.height());
+        if (!client.device_name().empty()) {
+            device_name = client.device_name();
+        }
+        std::cout << "[Client] Handshake completed successfully!" << std::endl;
+        std::cout << "[Client] Stream metadata: " << device_name << " ("
+                  << canvas_w << "x" << canvas_h << ", Codec: H.264)" << std::endl;
+        std::cout << "[Client] Video FD: " << video_fd << ", Control FD: " << control_fd << std::endl;
     }
 
+    std::cout << "[Client] Launching display and input event loop..." << std::endl;
     mirror::app::ClientApp app(video_fd, control_fd, canvas_w, canvas_h, device_name);
     return app.run();
 }

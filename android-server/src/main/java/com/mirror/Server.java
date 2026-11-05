@@ -219,6 +219,7 @@ public class Server {
             start(options);
         } catch (Exception e) {
             System.err.println("Server connection failed: " + e.getMessage());
+            e.printStackTrace(System.err);
             System.exit(1);
         }
     }
