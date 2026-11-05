@@ -74,7 +74,19 @@ public class DevicePowerController {
             args[1] = PARTIAL_WAKE_LOCK;
             args[2] = "mirror-wakelock";
             args[3] = "com.android.shell";
-            // Any remaining parameters (e.g. WorkSource, historyTag) remain null / 0
+            for (int i = 4; i < pts.length; i++) {
+                if (pts[i] == int.class) {
+                    args[i] = 0;
+                } else if (pts[i] == boolean.class) {
+                    args[i] = false;
+                } else if (pts[i] == long.class) {
+                    args[i] = 0L;
+                } else if (pts[i] == double.class) {
+                    args[i] = 0.0;
+                } else if (pts[i] == float.class) {
+                    args[i] = 0.0f;
+                }
+            }
 
             acquireWakeLockMethod.invoke(powerManager, args);
             wakeLockHeld = true;
@@ -92,8 +104,14 @@ public class DevicePowerController {
             Class<?>[] pts = releaseWakeLockMethod.getParameterTypes();
             Object[] args = new Object[pts.length];
             args[0] = wakeLockToken;
-            if (pts.length > 1) {
-                args[1] = 0; // flags
+            for (int i = 1; i < pts.length; i++) {
+                if (pts[i] == int.class) {
+                    args[i] = 0;
+                } else if (pts[i] == boolean.class) {
+                    args[i] = false;
+                } else if (pts[i] == long.class) {
+                    args[i] = 0L;
+                }
             }
 
             releaseWakeLockMethod.invoke(powerManager, args);

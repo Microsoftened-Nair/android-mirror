@@ -33,9 +33,21 @@ public final class DisplayManagerBridge {
 
     public static VirtualDisplay createVirtualDisplay(String name, int width, int height, int displayId,
                                                       Surface surface, int flags) throws ReflectiveOperationException {
+        // 1. Try static DisplayManager.createVirtualDisplay(name, width, height, displayId, surface)
+        // Supported across modern Android releases (Android 14/15/16) without needing a Context instance
+        try {
+            Class<?> dmClass = Class.forName("android.hardware.display.DisplayManager");
+            Method staticMethod = dmClass.getMethod("createVirtualDisplay", String.class, int.class, int.class, int.class, Surface.class);
+            VirtualDisplay vd = (VirtualDisplay) staticMethod.invoke(null, name, width, height, displayId, surface);
+            if (vd != null) {
+                return vd;
+            }
+        } catch (Throwable ignored) {
+        }
+
         Object dmg = getDisplayManagerGlobal();
         if (createVirtualDisplayMethod == null) {
-            // 1. Try legacy signature (API <= 29): (String name, int width, int height, int displayId, Surface surface, int flags, ...)
+            // 2. Try legacy signature (API <= 29): (String name, int width, int height, int displayId, Surface surface, int flags, ...)
             for (Method m : dmg.getClass().getDeclaredMethods()) {
                 if ("createVirtualDisplay".equals(m.getName())) {
                     Class<?>[] pts = m.getParameterTypes();
@@ -126,6 +138,11 @@ public final class DisplayManagerBridge {
                         args[i] = config;
                     } else if (paramTypes[i] == String.class) {
                         args[i] = "com.android.shell";
+                    } else if (paramTypes[i].isPrimitive()) {
+                        if (paramTypes[i] == int.class) args[i] = 0;
+                        else if (paramTypes[i] == boolean.class) args[i] = false;
+                        else if (paramTypes[i] == long.class) args[i] = 0L;
+                        else args[i] = 0;
                     } else {
                         args[i] = null;
                     }
